@@ -1,10 +1,14 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Zen.Logging.Models;
@@ -14,8 +18,10 @@ namespace Zen.Logging.Services
     public class LoggingQueueService : ILoggingQueueService
     {
         private object _lock = new object();
+        private DateTime _lastMessagesWrittenInMessageQueueCleanupDate = DateTime.Now;
 
         private IOptions<LoggingConfigModel> _loggingConfigModel;
+        private ConcurrentDictionary<string, DateTime> _messagesWrittenInMessageQueue = new ConcurrentDictionary<string, DateTime>();
 
         public LoggingQueueService(IOptions<LoggingConfigModel> loggingConfigModel)
         {
@@ -34,53 +40,92 @@ namespace Zen.Logging.Services
 
         public void Add(LogMessageModel logMessage)
         {
-            lock (_lock)
-            {
-                if (queue.IsAddingCompleted
-                    || consoleLoggingQueue.IsAddingCompleted
-                    || exceptionLoggingQueue.IsAddingCompleted
-                    || fileLoggingQueue.IsAddingCompleted)
-                    return;
+            if (queue.IsAddingCompleted
+                || consoleLoggingQueue.IsAddingCompleted
+                || exceptionLoggingQueue.IsAddingCompleted
+                || fileLoggingQueue.IsAddingCompleted)
+                return;
 
-                if (_loggingConfigModel?.Value?.Loggers?.MessageQueueLogger ?? false)
-                    queue.Add(logMessage);
+            // we want at least console logging
+            bool consoleLogger = _loggingConfigModel?.Value?.Loggers?.ConsoleLogger ?? true;
+            bool messageQueueLogger = _loggingConfigModel?.Value?.Loggers?.MessageQueueLogger ?? false;
+            bool fileLogger = _loggingConfigModel?.Value?.Loggers?.FileLogger ?? false;
 
-                if (_loggingConfigModel?.Value?.Loggers?.ConsoleLogger ?? true) // we want at least console logging
-                    consoleLoggingQueue.Add(logMessage);
+            if (consoleLogger)
+                consoleLoggingQueue.Add(logMessage);
 
-                if (_loggingConfigModel?.Value?.Loggers?.FileLogger ?? false)
-                    fileLoggingQueue.Add(logMessage);
+            bool isRepeatedMessage = MessageOccurredInTheLastSecond(logMessage);
 
-                if (logMessage.logLevel == LogLevel.Error || !string.IsNullOrEmpty(logMessage.exception_message))
-                    exceptionLoggingQueue.Add(logMessage);
-            }
+            if (messageQueueLogger && !isRepeatedMessage)
+                queue.Add(logMessage);
+
+            if (fileLogger && !isRepeatedMessage)
+                fileLoggingQueue.Add(logMessage);
+
+            if (fileLogger && !isRepeatedMessage && (logMessage.logLevel == LogLevel.Error || !string.IsNullOrEmpty(logMessage.exception_message)))
+                exceptionLoggingQueue.Add(logMessage);
+
+            CleanupOldMessages();
         }
 
-        public void SignalEnd()
+        private bool MessageOccurredInTheLastSecond(LogMessageModel logMessage)
+        {
+            string messagehash = GetSha256Hash(
+                $"{logMessage.source}" 
+                + $"{logMessage.logLevel}" 
+                + logMessage.message 
+                + logMessage.exception_message ?? ""
+            );
+
+            DateTime now = DateTime.Now;
+            bool isRepeatedMessage = false;
+
+            if (_messagesWrittenInMessageQueue.TryGetValue(messagehash, out DateTime lastTimeThisMessageOccurred))
+            {
+                if (lastTimeThisMessageOccurred >= now.AddSeconds(-1))
+                    isRepeatedMessage = true;
+            }
+
+            if (!isRepeatedMessage)
+                _messagesWrittenInMessageQueue.AddOrUpdate(messagehash, now, (k, oldValue) => now);
+
+            return true;
+        }
+
+        private void CleanupOldMessages()
         {
             lock (_lock)
             {
-                queue.CompleteAdding();
-                consoleLoggingQueue.CompleteAdding();
-                exceptionLoggingQueue.CompleteAdding();
-                fileLoggingQueue.CompleteAdding();
+                if (_lastMessagesWrittenInMessageQueueCleanupDate < DateTime.Now.AddMinutes(-5))
+                {
+                    _lastMessagesWrittenInMessageQueueCleanupDate = DateTime.Now;
+                }
+
+                _ = Task.Run(() =>
+                {
+                    for (int i = _messagesWrittenInMessageQueue.Count; i >= 0; i++)
+                    {
+                        KeyValuePair<string, DateTime> pair = _messagesWrittenInMessageQueue.ElementAt(i);
+
+                        if (pair.Value < DateTime.Now.AddMinutes(-10))
+                            _messagesWrittenInMessageQueue.TryRemove(pair.Key, out _);
+                    }
+                });
             }
         }
 
-        public bool IsDone()
+        private string GetSha256Hash(string str)
         {
-            lock (_lock)
-            {
-                return
-                    queue.IsCompleted
-                    && queue.Count == 0
-                    && consoleLoggingQueue.IsCompleted
-                    && consoleLoggingQueue.Count == 0
-                    && exceptionLoggingQueue.IsCompleted
-                    && exceptionLoggingQueue.Count == 0
-                    && fileLoggingQueue.IsCompleted
-                    && fileLoggingQueue.Count == 0;
-            }
+            using var sha256 = SHA256.Create();
+            byte[] passBytes = Encoding.UTF8.GetBytes(str);
+
+            var hashValue = sha256.ComputeHash(passBytes);
+            StringBuilder sb = new StringBuilder();
+
+            foreach (byte x in hashValue)
+                sb.Append(String.Format("{0:x2}", x));
+
+            return sb.ToString();
         }
     }
 }
