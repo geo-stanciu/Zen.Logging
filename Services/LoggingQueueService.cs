@@ -59,10 +59,10 @@ namespace Zen.Logging.Services
             if (messageQueueLogger && !isRepeatedMessage)
                 queue.Add(logMessage);
 
-            if (fileLogger && !isRepeatedMessage)
+            if (fileLogger)
                 fileLoggingQueue.Add(logMessage);
 
-            if (fileLogger && !isRepeatedMessage && (logMessage.logLevel == LogLevel.Error || !string.IsNullOrEmpty(logMessage.exception_message)))
+            if (fileLogger && (logMessage.logLevel == LogLevel.Error || !string.IsNullOrEmpty(logMessage.exception_message)))
                 exceptionLoggingQueue.Add(logMessage);
 
             CleanupOldMessages();
