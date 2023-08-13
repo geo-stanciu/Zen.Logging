@@ -17,7 +17,7 @@ namespace Zen.Logging.Models
         public string? source { get; set; } = string.Empty;
         public string? source_version { get; set; } = string.Empty;
         public string? ip { get; set; } = string.Empty;
-        public DateTime log_time { get; set; } = DateTime.Now;
+        public DateTime log_time { get; set; } = DateTime.UtcNow;
         public string? message { get; set; }
         public string? exception_message { get; set; }
     }

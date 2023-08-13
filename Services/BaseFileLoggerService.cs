@@ -63,13 +63,13 @@ namespace Zen.Logging.Services
 
         private void DeleteOldLogs(int keepDays, CancellationToken stoppingToken)
         {
-            string today = $"{DateTime.Now.ToUniversalTime():yyyy-MM-dd}";
+            string today = $"{DateTime.UtcNow:yyyy-MM-dd}";
             string loggingPath = new DirectoryInfo(GetLoggingDirectoryName(today))?.Parent?.FullName ?? "";
 
             if (string.IsNullOrEmpty(loggingPath))
                 return;
 
-            DateTime cutOff = DateTime.Now.AddDays(-1 * keepDays);
+            DateTime cutOff = DateTime.UtcNow.AddDays(-1 * keepDays);
 
             string[] logDirectories = Directory.GetDirectories(loggingPath);
 
@@ -91,7 +91,7 @@ namespace Zen.Logging.Services
 
         private void ArchiveOldLogFiles(CancellationToken stoppingToken)
         {
-            string today = $"{DateTime.Now.ToUniversalTime():yyyy-MM-dd}";
+            string today = $"{DateTime.UtcNow:yyyy-MM-dd}";
             string loggingPath = new DirectoryInfo(GetLoggingDirectoryName(today))?.Parent?.FullName ?? "";
 
             if (string.IsNullOrEmpty(loggingPath))
@@ -222,7 +222,7 @@ namespace Zen.Logging.Services
                         continue;
                     }
 
-                    string today = $"{DateTime.Now.ToUniversalTime():yyyy-MM-dd}";
+                    string today = $"{DateTime.UtcNow:yyyy-MM-dd}";
 
                     if (today != lastDay)
                     {
