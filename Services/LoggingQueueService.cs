@@ -42,10 +42,13 @@ namespace Zen.Logging.Services
                 || fileLoggingQueue.IsAddingCompleted)
                 return;
 
-            // we want at least console logging
-            bool consoleLogger = _loggingConfigModel?.Value?.Loggers?.ConsoleLogger ?? true;
+            bool consoleLogger = _loggingConfigModel?.Value?.Loggers?.ConsoleLogger ?? false;
             bool messageQueueLogger = _loggingConfigModel?.Value?.Loggers?.MessageQueueLogger ?? false;
             bool fileLogger = _loggingConfigModel?.Value?.Loggers?.FileLogger ?? false;
+
+            // we want at least console logging
+            if (!consoleLogger && !messageQueueLogger && !fileLogger)
+                consoleLogger = true;
 
             if (consoleLogger)
                 consoleLoggingQueue.Add(logMessage);
