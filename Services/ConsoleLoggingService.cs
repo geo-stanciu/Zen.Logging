@@ -24,8 +24,9 @@ namespace Zen.Logging.Services
             {
                 while (!stoppingToken.IsCancellationRequested || _loggingQueueService.consoleLoggingQueue.Count > 0)
                 {
-                    int nrItems;
-                    if (!_loggingQueueService.consoleLoggingQueue.TryGetNonEnumeratedCount(out nrItems) || nrItems == 0)
+                    int nrItems = _loggingQueueService.consoleLoggingQueue.Count;
+                    
+                    if (nrItems == 0)
                     {
                         await Task.Delay(100);
                         continue;

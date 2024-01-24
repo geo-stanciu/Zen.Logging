@@ -187,9 +187,9 @@ namespace Zen.Logging.Services
 
                 while (!stoppingToken.IsCancellationRequested || _queue.Count > 0)
                 {
-                    int nrItems;
+                    int nrItems = _queue.Count;
 
-                    if (!_queue.TryGetNonEnumeratedCount(out nrItems) || nrItems == 0)
+                    if (nrItems == 0)
                     {
                         await Task.Delay(100);
                         continue;
@@ -245,7 +245,7 @@ namespace Zen.Logging.Services
                             sb.AppendLine(logModel.exception_message);
                     }
 
-                    await File.AppendAllTextAsync(fileName, sb.ToString());
+                    File.AppendAllText(fileName, sb.ToString());
 
                     messages.Clear();
                     await Task.Delay(100);
