@@ -22,9 +22,16 @@ namespace Zen.Logging.Services
         {
             return Task.Run(async () =>
             {
-                while (!stoppingToken.IsCancellationRequested || _loggingQueueService.consoleLoggingQueue.Count > 0)
+                while (!stoppingToken.IsCancellationRequested
+                       || _loggingQueueService.consoleLoggingQueue.Reader.TryPeek(out _))
                 {
-                    int nrItems = _loggingQueueService.consoleLoggingQueue.Count;
+                    if (!_loggingQueueService.consoleLoggingQueue.Reader.TryPeek(out _))
+                    {
+                        await Task.Delay(100);
+                        continue;
+                    }
+
+                    int nrItems = _loggingQueueService.consoleLoggingQueue.Reader.Count;
                     
                     if (nrItems == 0)
                     {
@@ -39,7 +46,7 @@ namespace Zen.Logging.Services
 
                     for (int i = 0; i < nrItems; i++)
                     {
-                        if (_loggingQueueService.consoleLoggingQueue.TryTake(out LogMessageModel? msg))
+                        if (_loggingQueueService.consoleLoggingQueue.Reader.TryRead(out LogMessageModel? msg))
                         {
                             if (msg == null)
                                 continue;

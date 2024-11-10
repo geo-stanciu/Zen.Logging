@@ -9,6 +9,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Zen.Logging.Models;
 
@@ -21,7 +22,7 @@ namespace Zen.Logging.Services
         protected IOptions<LoggingConfigModel>? _loggingConfigModel;
 
         protected string? _logFileNamePrefix;
-        protected BlockingCollection<LogMessageModel>? _queue;
+        protected Channel<LogMessageModel>? _queue;
         protected LogCleanupSettingsModel? _logCleanupSettings;
 
         private static object _deleteOldLogsLockObject = new object();
@@ -185,9 +186,15 @@ namespace Zen.Logging.Services
                 int fileNumber = 0;
                 string fileSeq = $"_{fileNumber:0000}";
 
-                while (!stoppingToken.IsCancellationRequested || _queue.Count > 0)
+                while (!stoppingToken.IsCancellationRequested || _queue.Reader.TryPeek(out _))
                 {
-                    int nrItems = _queue.Count;
+                    if (!_queue.Reader.TryPeek(out _))
+                    {
+                        await Task.Delay(100);
+                        continue;
+                    }
+
+                    int nrItems = _queue.Reader.Count;
 
                     if (nrItems == 0)
                     {
@@ -202,7 +209,7 @@ namespace Zen.Logging.Services
 
                     for (int i = 0; i < nrItems; i++)
                     {
-                        if (_queue.TryTake(out LogMessageModel? msg))
+                        if (_queue.Reader.TryRead(out LogMessageModel? msg))
                         {
                             if (msg == null)
                                 continue;

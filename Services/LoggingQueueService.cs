@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Zen.Logging.Models;
 
@@ -24,41 +25,66 @@ namespace Zen.Logging.Services
 
         public CancellationToken cancellationToken { get; set; }
 
-        public BlockingCollection<LogMessageModel> queue { get; set; } = new BlockingCollection<LogMessageModel>();
+        public Channel<LogMessageModel> queue { get; set; } = Channel.CreateUnbounded<LogMessageModel>();
 
-        public BlockingCollection<LogMessageModel> consoleLoggingQueue { get; set; } = new BlockingCollection<LogMessageModel>();
+        public Channel<LogMessageModel> consoleLoggingQueue { get; set; } = Channel.CreateUnbounded<LogMessageModel>();
 
-        public BlockingCollection<LogMessageModel> exceptionLoggingQueue { get; set; } = new BlockingCollection<LogMessageModel>();
+        public Channel<LogMessageModel> exceptionLoggingQueue { get; set; } = Channel.CreateUnbounded<LogMessageModel>();
 
-        public BlockingCollection<LogMessageModel> fileLoggingQueue { get; set; } = new BlockingCollection<LogMessageModel>();
+        public Channel<LogMessageModel> fileLoggingQueue { get; set; } = Channel.CreateUnbounded<LogMessageModel>();
 
         public void Add(LogMessageModel logMessage)
         {
-            if (queue.IsAddingCompleted
-                || consoleLoggingQueue.IsAddingCompleted
-                || exceptionLoggingQueue.IsAddingCompleted
-                || fileLoggingQueue.IsAddingCompleted)
-                return;
-
             bool consoleLogger = _loggingConfigModel?.Value?.Loggers?.ConsoleLogger ?? false;
             bool messageQueueLogger = _loggingConfigModel?.Value?.Loggers?.MessageQueueLogger ?? false;
             bool fileLogger = _loggingConfigModel?.Value?.Loggers?.FileLogger ?? false;
+            bool exceptionLogger = fileLogger && (logMessage.logLevel == LogLevel.Error || !string.IsNullOrEmpty(logMessage.exception_message));
+            bool consoleLoggerSuccess = false;
+            bool messageQueueLoggerSuccess = false;
+            bool fileLoggerSuccess = false;
+            bool exceptionLoggerSuccess = false;
+            int maxTries = 10;
 
             // we want at least console logging
             if (!consoleLogger && !messageQueueLogger && !fileLogger)
                 consoleLogger = true;
 
-            if (consoleLogger)
-                consoleLoggingQueue.Add(logMessage);
+            while (true)
+            {
+                if (maxTries <= 0)
+                    throw new Exception("Logger error while trying to enqueue the log message");
 
-            if (messageQueueLogger)
-                queue.Add(logMessage);
+                try
+                {
+                    if (consoleLogger && !consoleLoggerSuccess)
+                        consoleLoggerSuccess = consoleLoggingQueue.Writer.TryWrite(logMessage);
 
-            if (fileLogger)
-                fileLoggingQueue.Add(logMessage);
+                    if (messageQueueLogger && !messageQueueLoggerSuccess)
+                        messageQueueLoggerSuccess = queue.Writer.TryWrite(logMessage);
 
-            if (fileLogger && (logMessage.logLevel == LogLevel.Error || !string.IsNullOrEmpty(logMessage.exception_message)))
-                exceptionLoggingQueue.Add(logMessage);
+                    if (fileLogger && !fileLoggerSuccess)
+                        fileLoggerSuccess = fileLoggingQueue.Writer.TryWrite(logMessage);
+
+                    if (exceptionLogger && !exceptionLoggerSuccess)
+                        exceptionLoggerSuccess = exceptionLoggingQueue.Writer.TryWrite(logMessage);
+
+                    if ((!consoleLogger || consoleLoggerSuccess)
+                        && (!messageQueueLogger || messageQueueLoggerSuccess)
+                        && (!fileLogger || fileLoggerSuccess)
+                        && (!exceptionLogger || exceptionLoggerSuccess))
+                    {
+                        break;
+                    }
+                }
+                catch
+                {
+                    Thread.Sleep(100);
+                }
+                finally
+                {
+                    maxTries--;
+                }
+            }
         }
     }
 }
