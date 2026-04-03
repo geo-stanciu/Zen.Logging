@@ -6,7 +6,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-    <VersionPrefix>1.0.7.9</VersionPrefix>
+    <VersionPrefix>1.0.7.10</VersionPrefix>
   </PropertyGroup>
 
   <PropertyGroup>
