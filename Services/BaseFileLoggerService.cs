@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
@@ -11,6 +9,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Zen.Logging.Models;
 
 namespace Zen.Logging.Services
@@ -18,28 +18,26 @@ namespace Zen.Logging.Services
     public abstract class BaseFileLoggerService : BackgroundService
     {
         protected ILoggingQueueService _loggingQueueService;
-        protected IOptions<AppSettingsBaseModel>? _appSettings;
         protected IOptions<LoggingConfigModel>? _loggingConfigModel;
 
         protected string? _logFileNamePrefix;
+        protected string? _logDirectory;
         protected Channel<LogMessageModel>? _queue;
         protected LogCleanupSettingsModel? _logCleanupSettings;
 
-        private static object _deleteOldLogsLockObject = new object();
+        private static readonly object _deleteOldLogsLockObject = new object();
 
         public BaseFileLoggerService(
             ILoggingQueueService loggingQueueService,
-            IOptions<AppSettingsBaseModel> appSettings,
             IOptions<LoggingConfigModel> loggingConfigModel)
         {
             _loggingQueueService = loggingQueueService;
-            _appSettings = appSettings;
             _loggingConfigModel = loggingConfigModel;
         }
 
         private string GetLoggingDirectoryName(string date)
         {
-            return _appSettings?.Value?.LoggingDirectory?
+            return _logDirectory?
                 .Replace("%AppData%", Utils.Util.GetAppDataDirectory())?
                 .Replace("%Date%", date) ?? "./";
         }
@@ -115,7 +113,7 @@ namespace Zen.Logging.Services
                 if (logFiles.Length == 0)
                     continue;
 
-                CreateLogArchive(logFiles, logDirectory, logDirectoryName);
+                CreateLogArchive(logFiles, logDirectory, $"{_logFileNamePrefix}_{logDirectoryName}");
                 DeleteLogFiles(logFiles);
             }
         }
@@ -128,9 +126,9 @@ namespace Zen.Logging.Services
             }
         }
 
-        private void CreateLogArchive(string[] logFiles, string logDirectory, string logDirectoryName)
+        private void CreateLogArchive(string[] logFiles, string logDirectory, string baseName)
         {
-            string archiveName = Path.Combine(logDirectory, $"{logDirectoryName}.zip");
+            string archiveName = Path.Combine(logDirectory, $"{baseName}.zip");
 
             using (FileStream zipStream = new FileStream(archiveName, FileMode.Create))
             {
@@ -262,7 +260,8 @@ namespace Zen.Logging.Services
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            return Task.Run(async () => {
+            return Task.Run(async () =>
+            {
                 Task logCleanupTask = LogCleanupAsync(stoppingToken);
                 Task logggerTask = LogAsync(stoppingToken);
 
